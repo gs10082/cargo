@@ -1,41 +1,33 @@
-/*
- * Keeps Godot export artifacts below static-host file limits.
- * The browser rebuilds each original binary before Godot initializes it.
- */
-(function () {
-	const nativeFetch = window.fetch.bind(window);
-	const splitFiles = {
-		[new URL("index.wasm", document.baseURI).href]: ["index.wasm.part1", "index.wasm.part2"],
-		[new URL("index.pck", document.baseURI).href]: ["index.pck.part1", "index.pck.part2"],
-	};
+(() => {
+  'use strict';
 
-	window.fetch = async function (input, init) {
-		const requestUrl = new URL(input instanceof Request ? input.url : input, document.baseURI).href;
-		const chunks = splitFiles[requestUrl];
-		if (!chunks) {
-			return nativeFetch(input, init);
-		}
+  const nativeFetch = window.fetch.bind(window);
+  const chunkMap = {
+    'index.wasm': ['index.wasm.part1', 'index.wasm.part2'],
+    'index.pck': ['index.pck.part1', 'index.pck.part2'],
+  };
 
-		const responses = await Promise.all(chunks.map((chunk) => nativeFetch(chunk, init)));
-		if (responses.some((response) => !response.ok)) {
-			throw new Error("Failed to load a split game file.");
-		}
-
-		const parts = await Promise.all(responses.map((response) => response.arrayBuffer()));
-		const size = parts.reduce((total, part) => total + part.byteLength, 0);
-		const binary = new Uint8Array(size);
-		let offset = 0;
-		parts.forEach((part) => {
-			binary.set(new Uint8Array(part), offset);
-			offset += part.byteLength;
-		});
-
-		return new Response(binary, {
-			status: 200,
-			headers: {
-				"Content-Type": requestUrl.endsWith(".wasm") ? "application/wasm" : "application/octet-stream",
-				"Content-Length": String(size),
-			},
-		});
-	};
-}());
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const fileName = url.split('?')[0].split('/').pop();
+    const chunks = chunkMap[fileName];
+    if (!chunks) {
+      return nativeFetch(input, init);
+    }
+    const baseUrl = url.slice(0, url.lastIndexOf('/') + 1);
+    const parts = await Promise.all(chunks.map((name) => nativeFetch(baseUrl + name).then((response) => {
+      if (!response.ok) throw new Error(`Failed to load ${name}`);
+      return response.arrayBuffer();
+    })));
+    const totalLength = parts.reduce((total, part) => total + part.byteLength, 0);
+    const merged = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const part of parts) {
+      merged.set(new Uint8Array(part), offset);
+      offset += part.byteLength;
+    }
+    return new Response(merged, {
+      headers: { 'Content-Type': fileName.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream' },
+    });
+  };
+})();
