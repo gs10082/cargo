@@ -3,7 +3,7 @@
 
   const nativeFetch = window.fetch.bind(window);
   // Change this on each delivery so GitHub Pages cannot reuse an older PCK chunk.
-  const BUILD_VERSION = '20260818-ingame-scroll';
+  const BUILD_VERSION = '20260818-ammo-slot-pixel-fix';
   const chunkMap = {
     'index.wasm': ['index.wasm.part1', 'index.wasm.part2'],
     'index.pck': ['index.pck.part1', 'index.pck.part2'],
