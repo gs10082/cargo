@@ -22,15 +22,13 @@
     }
   };
 
-  const hub = () => window.HubGame;
-
   const submitPendingScore = async () => {
     const pending = Number(localLoad(PENDING_SCORE_KEY) || 0);
-    if (pending <= 0 || !hub() || typeof hub().submitScore !== 'function') {
+    if (pending <= 0 || !window.HubGame || typeof window.HubGame.submitScore !== 'function') {
       return false;
     }
     try {
-      await hub().submitScore(LEADERBOARD_KEY, pending);
+      await window.HubGame.submitScore(LEADERBOARD_KEY, pending);
       localSave(PENDING_SCORE_KEY, 0);
       return true;
     } catch (_) {
@@ -41,11 +39,11 @@
   window.CargoAndColtHub = {
     async loadProfile() {
       const fallback = localLoad(PROFILE_KEY);
-      if (!hub() || typeof hub().load !== 'function') {
+      if (!window.HubGame || typeof window.HubGame.load !== 'function') {
         return { ready: false, value: fallback };
       }
       try {
-        const remote = await hub().load(PROFILE_KEY);
+        const remote = await window.HubGame.load(PROFILE_KEY);
         if (remote) {
           localSave(PROFILE_KEY, remote);
           return { ready: true, value: remote };
@@ -58,11 +56,11 @@
 
     async saveProfile(profile) {
       localSave(PROFILE_KEY, profile);
-      if (!hub() || typeof hub().save !== 'function') {
+      if (!window.HubGame || typeof window.HubGame.save !== 'function') {
         return false;
       }
       try {
-        await hub().save(PROFILE_KEY, profile);
+        await window.HubGame.save(PROFILE_KEY, profile);
         return true;
       } catch (_) {
         return false;
@@ -80,11 +78,11 @@
 
     async getChallengeLeaderboard(limit) {
       await submitPendingScore();
-      if (!hub() || typeof hub().getLeaderboard !== 'function') {
+      if (!window.HubGame || typeof window.HubGame.getLeaderboard !== 'function') {
         return { available: false, rows: [] };
       }
       try {
-        const rows = await hub().getLeaderboard(LEADERBOARD_KEY, Math.max(1, Number(limit) || 100));
+        const rows = await window.HubGame.getLeaderboard(LEADERBOARD_KEY, Math.max(1, Number(limit) || 100));
         return { available: true, rows: Array.isArray(rows) ? rows : [] };
       } catch (_) {
         return { available: false, rows: [] };
