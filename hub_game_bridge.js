@@ -2,63 +2,53 @@
   'use strict';
 
   const PROFILE_KEY = 'cargo_and_colt_profile';
-  const LEADERBOARD_KEY = 'cargo_and_colt_survival';
-  const PENDING_SCORE_KEY = 'cargo_and_colt_pending_challenge_score';
+  const CHALLENGE_KEY = 'cargo_and_colt_survival';
 
-  const localLoad = (key) => {
+  const readLocal = (key) => {
     try {
-      const value = localStorage.getItem(key);
-      return value ? JSON.parse(value) : null;
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
     } catch (_) {
       return null;
     }
   };
 
-  const localSave = (key, value) => {
+  const writeLocal = (key, value) => {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      window.localStorage.setItem(key, JSON.stringify(value));
     } catch (_) {
-      // Local storage can be unavailable in private browser contexts.
+      // Private browsing or quota failures must not interrupt the game.
     }
   };
 
-  const submitPendingScore = async () => {
-    const pending = Number(localLoad(PENDING_SCORE_KEY) || 0);
-    if (pending <= 0 || !window.HubGame || typeof window.HubGame.submitScore !== 'function') {
-      return false;
+  const canLoad = () => typeof window.HubGame?.load === 'function';
+  const canSave = () => typeof window.HubGame?.save === 'function';
+
+  const waitForHubLoad = async () => {
+    for (const delay of [0, 150, 350, 750]) {
+      if (canLoad()) return true;
+      if (delay > 0) await new Promise((resolve) => window.setTimeout(resolve, delay));
     }
-    try {
-      await window.HubGame.submitScore(LEADERBOARD_KEY, pending);
-      localSave(PENDING_SCORE_KEY, 0);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return canLoad();
   };
 
   window.CargoAndColtHub = {
     async loadProfile() {
-      const fallback = localLoad(PROFILE_KEY);
-      if (!window.HubGame || typeof window.HubGame.load !== 'function') {
-        return { ready: false, value: fallback };
-      }
+      const fallback = readLocal(PROFILE_KEY);
+      if (!await waitForHubLoad()) return { ready: false, value: fallback };
       try {
         const remote = await window.HubGame.load(PROFILE_KEY);
-        if (remote) {
-          localSave(PROFILE_KEY, remote);
-          return { ready: true, value: remote };
-        }
-        return { ready: true, value: fallback };
+        const value = remote || fallback;
+        if (remote) writeLocal(PROFILE_KEY, remote);
+        return { ready: true, value };
       } catch (_) {
         return { ready: false, value: fallback };
       }
     },
 
     async saveProfile(profile) {
-      localSave(PROFILE_KEY, profile);
-      if (!window.HubGame || typeof window.HubGame.save !== 'function') {
-        return false;
-      }
+      writeLocal(PROFILE_KEY, profile);
+      if (!canSave()) return false;
       try {
         await window.HubGame.save(PROFILE_KEY, profile);
         return true;
@@ -68,21 +58,25 @@
     },
 
     async submitChallengeScore(score) {
-      const nextScore = Math.max(0, Number(score) || 0);
-      const pending = Number(localLoad(PENDING_SCORE_KEY) || 0);
-      if (nextScore > pending) {
-        localSave(PENDING_SCORE_KEY, nextScore);
+      const value = Math.max(0, Number(score) || 0);
+      const savedBest = Number(readLocal(`${CHALLENGE_KEY}_best`) || 0);
+      if (value <= savedBest) return false;
+      writeLocal(`${CHALLENGE_KEY}_best`, value);
+      if (typeof window.HubGame?.submitScore !== 'function') return false;
+      try {
+        await window.HubGame.submitScore(CHALLENGE_KEY, value);
+        return true;
+      } catch (_) {
+        return false;
       }
-      return submitPendingScore();
     },
 
     async getChallengeLeaderboard(limit) {
-      await submitPendingScore();
-      if (!window.HubGame || typeof window.HubGame.getLeaderboard !== 'function') {
+      if (typeof window.HubGame?.getLeaderboard !== 'function') {
         return { available: false, rows: [] };
       }
       try {
-        const rows = await window.HubGame.getLeaderboard(LEADERBOARD_KEY, Math.max(1, Number(limit) || 100));
+        const rows = await window.HubGame.getLeaderboard(CHALLENGE_KEY, Math.max(1, Number(limit) || 10));
         return { available: true, rows: Array.isArray(rows) ? rows : [] };
       } catch (_) {
         return { available: false, rows: [] };
