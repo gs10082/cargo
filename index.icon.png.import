@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dtdqwbpdaissy"
-path="res://.godot/imported/index.icon.png-4cfc626fdf924af06016e5af586124d5.ctex"
+path="res://.godot/imported/index.icon.png-4cc1657a42c1fa728afb8a24c174b306.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://release/cargo-and-colt-web-r23/index.icon.png"
-dest_files=["res://.godot/imported/index.icon.png-4cfc626fdf924af06016e5af586124d5.ctex"]
+source_file="res://release/cargo-and-colt-web-r26/index.icon.png"
+dest_files=["res://.godot/imported/index.icon.png-4cc1657a42c1fa728afb8a24c174b306.ctex"]
 
 [params]
 
