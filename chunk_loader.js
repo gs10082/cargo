@@ -3,7 +3,7 @@
 
   const nativeFetch = window.fetch.bind(window);
   // Bump this on every delivery so a host never serves stale chunks.
-  const BUILD_VERSION = '20260821-boss-progression-r35';
+  const BUILD_VERSION = '20260821-boss-and-bgm-r40';
   const chunkMap = {
     // .bin files bypass the host's Function route and remain static assets.
     'index.wasm': ['index-wasm-1.bin', 'index-wasm-2.bin'],
