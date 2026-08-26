@@ -12,6 +12,8 @@ html, body, #canvas {
 	margin: 0;
 	padding: 0;
 	border: 0;
+	width: 100%;
+	height: 100%;
 }
 
 body {
@@ -46,7 +48,8 @@ body {
 	flex-direction: column;
 	justify-content: center;
 	align-items: center;
-	visibility: hidden;
+	/* Show the fixed-size loading art before the engine script has downloaded. */
+	visibility: visible;
 }
 
 #status-splash {
@@ -95,6 +98,7 @@ body {
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+		<link rel="preload" as="image" href="title-splash.png" type="image/png" fetchpriority="high" />
 
 			
 		<style>
@@ -102,7 +106,7 @@ body {
 			#status-splash {
 				position: absolute; inset: 0;
 				width: 100%; height: 100%; max-height: none;
-				margin: 0; object-fit: cover; object-position: center; image-rendering: auto;
+				margin: 0; object-fit: contain; object-position: center; image-rendering: auto;
 			}
 			#status-progress {
 				position: absolute; display: block; left: 50%; top: 82.3%; z-index: 1;
@@ -115,17 +119,6 @@ body {
 				transform-origin: left center; will-change: width;
 			}
 		</style>
-		<script>
-			(() => {
-				const loadingImage = 'title-splash.png';
-				const applyLoadingArt = () => {
-					const splash = document.getElementById('status-splash');
-					if (splash) splash.src = loadingImage;
-				};
-				if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyLoadingArt);
-				else applyLoadingArt();
-			})();
-		</script>
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -137,13 +130,15 @@ body {
 		</noscript>
 
 		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="title-splash.png" alt="">
+			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="title-splash.png" width="1080" height="1936" decoding="sync" fetchpriority="high" alt="">
 			<div id="status-progress" role="progressbar" aria-label="Loading"><div id="status-progress-fill"></div></div>
 			<div id="status-notice"></div>
 		</div>
 
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
-		<script src="chunk_loader.js"></script>
+		<!-- Version this URL as well as the chunks: otherwise a cached old loader
+		     keeps requesting a previous PCK even after a new release is uploaded. -->
+		<script src="chunk_loader.js?v=20260826-web-perf-r68"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -152,6 +147,9 @@ body {
 				'use strict';
 
 				const PROFILE_KEY = 'cargo_and_colt_profile';
+				const STORY_PROGRESS_KEY = 'cargo_and_colt_story_progress';
+				const STORY_PROGRESS_COOKIE = 'cargo_and_colt_story_progress';
+				const HUB_STORY_PROGRESS_KEY = 'cargo_and_colt_story_progress_v1';
 				const CHALLENGE_KEY = 'cargo_and_colt_survival';
 				const CHALLENGE_BEST_KEY = 'cargo_and_colt_survival_best';
 				const readLocal = (key) => {
@@ -169,7 +167,48 @@ body {
 						// Private browsing or quota failures must not interrupt the game.
 					}
 				};
+				const readCookie = (key) => {
+					try {
+						const match = document.cookie.match(new RegExp(`(?:^|; )${key}=([^;]*)`));
+						return match ? JSON.parse(decodeURIComponent(match[1])) : null;
+					} catch (_) {
+						return null;
+					}
+				};
+				const readStoryProgress = () => readLocal(STORY_PROGRESS_KEY) || readCookie(STORY_PROGRESS_COOKIE);
+				const writeStoryProgress = (profile) => {
+					const snapshot = {
+						cleared_stages: Array.isArray(profile?.cleared_stages) ? profile.cleared_stages : [],
+						unlocked_stage: Math.max(1, Number(profile?.unlocked_stage) || 1),
+						saved_at: Date.now(),
+					};
+					writeLocal(STORY_PROGRESS_KEY, snapshot);
+					try {
+						document.cookie = `${STORY_PROGRESS_COOKIE}=${encodeURIComponent(JSON.stringify(snapshot))}; path=/; max-age=31536000; SameSite=Lax`;
+					} catch (_) {
+						// localStorage remains the primary same-origin fallback.
+					}
+					return snapshot;
+				};
+				const applyStoryProgress = (profile, story) => {
+					if (!profile || !story || !Array.isArray(story.cleared_stages)) return profile;
+					return {
+						...profile,
+						cleared_stages: story.cleared_stages,
+						unlocked_stage: Math.max(1, Number(story.unlocked_stage) || 1),
+						story_progress_saved_at: Number(story.saved_at) || 0,
+					};
+				};
 				const getHub = () => window.HubGame || null;
+				const pickNewestProfile = (local, remote) => {
+					if (!remote) return local;
+					if (!local) return remote;
+					const localSavedAt = Number(local.profile_saved_at) || 0;
+					const remoteSavedAt = Number(remote.profile_saved_at) || 0;
+					// Legacy remote saves have no timestamp. Keep the current browser's
+					// progress instead of letting a stale snapshot reset Story progress.
+					return remoteSavedAt > localSavedAt ? remote : local;
+				};
 				const waitForHubMethod = async (method, timeoutMs = 6000) => {
 					const startedAt = Date.now();
 					do {
@@ -182,25 +221,57 @@ body {
 				};
 
 				window.CargoAndColtHub = {
-					async loadProfile() {
-						const fallback = readLocal(PROFILE_KEY);
+					async loadStoryProgress() {
+						const fallback = readLocal(HUB_STORY_PROGRESS_KEY);
 						const hub = await waitForHubMethod('load');
 						if (!hub) return { ready: false, value: fallback };
 						try {
-							const remote = await hub.load(PROFILE_KEY);
-							const value = remote || fallback;
-							if (remote) writeLocal(PROFILE_KEY, remote);
+							const remote = await hub.load(HUB_STORY_PROGRESS_KEY);
+							const value = remote && typeof remote === 'object' ? remote : fallback;
+							if (value) writeLocal(HUB_STORY_PROGRESS_KEY, value);
 							return { ready: true, value };
 						} catch (_) {
 							return { ready: false, value: fallback };
 						}
 					},
-					async saveProfile(profile) {
-						writeLocal(PROFILE_KEY, profile);
+					async saveStoryProgress(progress) {
+						const snapshot = {
+							current_story_id: Math.max(0, Number(progress?.current_story_id) || 0),
+							completed_story_ids: Array.isArray(progress?.completed_story_ids) ? progress.completed_story_ids : [],
+						};
+						writeLocal(HUB_STORY_PROGRESS_KEY, snapshot);
 						const hub = await waitForHubMethod('save');
 						if (!hub) return false;
 						try {
-							await hub.save(PROFILE_KEY, profile);
+							await hub.save(HUB_STORY_PROGRESS_KEY, snapshot);
+							return true;
+						} catch (_) {
+							return false;
+						}
+					},
+					async loadProfile() {
+						const fallback = readLocal(PROFILE_KEY);
+						const storyProgress = readStoryProgress();
+						const hub = await waitForHubMethod('load');
+						if (!hub) return { ready: false, value: applyStoryProgress(fallback, storyProgress) };
+						try {
+							const remote = await hub.load(PROFILE_KEY);
+							const value = applyStoryProgress(pickNewestProfile(fallback, remote), storyProgress);
+							if (value) writeLocal(PROFILE_KEY, value);
+							return { ready: true, value };
+						} catch (_) {
+							return { ready: false, value: applyStoryProgress(fallback, storyProgress) };
+						}
+					},
+					async saveProfile(profile) {
+						const snapshot = { ...profile, profile_saved_at: Date.now() };
+						const storyProgress = writeStoryProgress(snapshot);
+						snapshot.story_progress_saved_at = storyProgress.saved_at;
+						writeLocal(PROFILE_KEY, snapshot);
+						const hub = await waitForHubMethod('save');
+						if (!hub) return false;
+						try {
+							await hub.save(PROFILE_KEY, snapshot);
 							return true;
 						} catch (_) {
 							return false;
@@ -277,7 +348,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":28587652,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":28083656,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -286,6 +357,7 @@ const engine = new Engine(GODOT_CONFIG);
 	const statusProgress = document.getElementById('status-progress');
 	const statusProgressFill = document.getElementById('status-progress-fill');
 	const statusNotice = document.getElementById('status-notice');
+	const statusSplash = document.getElementById('status-splash');
 
 	let initializing = true;
 	let statusMode = '';
@@ -346,6 +418,21 @@ const engine = new Engine(GODOT_CONFIG);
 		initializing = false;
 	}
 
+	function waitForLoadingArt() {
+		// Do not race the browser's first image decode against the Wasm/PCK download.
+		// On slower devices that race displayed a clipped splash for one or two frames.
+		if (statusSplash == null) return Promise.resolve();
+		const decode = () => typeof statusSplash.decode === 'function'
+			? statusSplash.decode().catch(() => undefined)
+			: Promise.resolve();
+		if (statusSplash.complete && statusSplash.naturalWidth > 0) return decode();
+		return new Promise((resolve) => {
+			const finish = () => decode().finally(resolve);
+			statusSplash.addEventListener('load', finish, { once: true });
+			statusSplash.addEventListener('error', resolve, { once: true });
+		});
+	}
+
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
@@ -384,19 +471,24 @@ const engine = new Engine(GODOT_CONFIG);
 	} else {
 		setStatusMode('progress');
 		requestAnimationFrame(animateLoadingProgress);
-		engine.startGame({
+		waitForLoadingArt().then(() => engine.startGame({
 			'onProgress': function (current, total) {
 				if (current > 0 && total > 0) {
 					actualProgress = Math.min(1, current / total);
 				}
 			},
-		}).then(() => {
-			loadingFinished = true;
-			const closeWhenFilled = () => {
-				if (visualProgress >= 1) setStatusMode('hidden');
-				else requestAnimationFrame(closeWhenFilled);
-			};
-			requestAnimationFrame(closeWhenFilled);
+		})).then(() => {
+			// Keep the browser-native splash over the first Godot frame. This gives
+			// large title textures time to finish their first GPU upload instead of
+			// exposing a partially rendered title image on slower mobile browsers.
+			window.setTimeout(() => {
+				loadingFinished = true;
+				const closeWhenFilled = () => {
+					if (visualProgress >= 1) setStatusMode('hidden');
+					else requestAnimationFrame(closeWhenFilled);
+				};
+				requestAnimationFrame(closeWhenFilled);
+			}, 700);
 		}, displayFailureNotice);
 	}
 }());
