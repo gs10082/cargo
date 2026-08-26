@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-		<script src="chunk_loader.js?v=20260826-web-perf-r71"></script>
+		<script src="chunk_loader.js?v=20260826-web-perf-r72"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -348,7 +348,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":28083992,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":28084344,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -365,6 +365,7 @@ const engine = new Engine(GODOT_CONFIG);
 	let visualProgress = 0.04;
 	let loadStartedAt = performance.now();
 	let loadingFinished = false;
+	let titleScreenReady = false;
 
 	function animateLoadingProgress() {
 		if (!initializing || statusProgressFill == null) return;
@@ -417,6 +418,25 @@ const engine = new Engine(GODOT_CONFIG);
 		setStatusMode('notice');
 		initializing = false;
 	}
+
+	function finishLoadingOverlay() {
+		if (!initializing || loadingFinished) return;
+		loadingFinished = true;
+		const closeWhenFilled = () => {
+			if (visualProgress >= 1) setStatusMode('hidden');
+			else requestAnimationFrame(closeWhenFilled);
+		};
+		requestAnimationFrame(closeWhenFilled);
+	}
+
+	// Godot calls this only after the title scene has rendered. Keeping the splash
+	// until then prevents the canvas clear color from flashing between screens.
+	window.CargoAndColtLoading = {
+		titleScreenReady: () => {
+			titleScreenReady = true;
+			finishLoadingOverlay();
+		},
+	};
 
 	function waitForLoadingArt() {
 		// Do not race the browser's first image decode against the Wasm/PCK download.
@@ -478,17 +498,7 @@ const engine = new Engine(GODOT_CONFIG);
 				}
 			},
 		})).then(() => {
-			// Keep the browser-native splash over the first Godot frame. This gives
-			// large title textures time to finish their first GPU upload instead of
-			// exposing a partially rendered title image on slower mobile browsers.
-			window.setTimeout(() => {
-				loadingFinished = true;
-				const closeWhenFilled = () => {
-					if (visualProgress >= 1) setStatusMode('hidden');
-					else requestAnimationFrame(closeWhenFilled);
-				};
-				requestAnimationFrame(closeWhenFilled);
-			}, 700);
+			if (titleScreenReady) finishLoadingOverlay();
 		}, displayFailureNotice);
 	}
 }());
