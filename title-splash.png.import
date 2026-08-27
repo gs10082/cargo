@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dln2n77vgu43o"
-path="res://.godot/imported/title-splash.png-dbac2105dc64097360bf3a079d44e8c4.ctex"
+uid="uid://cy27nf1ouu2qf"
+path="res://.godot/imported/title-splash.png-98ae7ee07ab8bdaaca1a3ee8ce06b85e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://web_support/title-splash.png"
-dest_files=["res://.godot/imported/title-splash.png-dbac2105dc64097360bf3a079d44e8c4.ctex"]
+source_file="res://release/cargo-and-colt-web-r77/title-splash.png"
+dest_files=["res://.godot/imported/title-splash.png-98ae7ee07ab8bdaaca1a3ee8ce06b85e.ctex"]
 
 [params]
 
