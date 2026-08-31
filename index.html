@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 		<title>cargo-and-colt</title>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-		<script src="chunk_loader.js?v=20260827-loading-coroutine-fix-r77"></script>
+<script src="chunk_loader.js?v=20260831-ios-memory-r88"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -348,7 +348,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19616236,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":12547960,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -366,6 +366,7 @@ const engine = new Engine(GODOT_CONFIG);
 	let loadStartedAt = performance.now();
 	let loadingFinished = false;
 	let titleScreenReady = false;
+	let titleReadyFallbackTimer = 0;
 
 	function animateLoadingProgress() {
 		if (!initializing || statusProgressFill == null) return;
@@ -421,6 +422,10 @@ const engine = new Engine(GODOT_CONFIG);
 
 	function finishLoadingOverlay() {
 		if (!initializing || loadingFinished) return;
+		if (titleReadyFallbackTimer) {
+			window.clearTimeout(titleReadyFallbackTimer);
+			titleReadyFallbackTimer = 0;
+		}
 		loadingFinished = true;
 		const closeWhenFilled = () => {
 			if (visualProgress >= 1) setStatusMode('hidden');
@@ -439,18 +444,25 @@ const engine = new Engine(GODOT_CONFIG);
 	};
 
 	function waitForLoadingArt() {
-		// Do not race the browser's first image decode against the Wasm/PCK download.
-		// On slower devices that race displayed a clipped splash for one or two frames.
+		// Do not let an iOS image decode stall the engine indefinitely. Safari can leave
+		// decode() pending when the page is still restoring its WebGL context.
 		if (statusSplash == null) return Promise.resolve();
-		const decode = () => typeof statusSplash.decode === 'function'
+		const decoded = () => typeof statusSplash.decode === 'function'
 			? statusSplash.decode().catch(() => undefined)
 			: Promise.resolve();
-		if (statusSplash.complete && statusSplash.naturalWidth > 0) return decode();
-		return new Promise((resolve) => {
-			const finish = () => decode().finally(resolve);
-			statusSplash.addEventListener('load', finish, { once: true });
-			statusSplash.addEventListener('error', resolve, { once: true });
-		});
+		const imageReady = statusSplash.complete
+			? decoded()
+			: new Promise((resolve) => {
+				const finish = () => decoded().finally(resolve);
+				statusSplash.addEventListener('load', finish, { once: true });
+				statusSplash.addEventListener('error', resolve, { once: true });
+			});
+		// The loading art is cosmetic. Start Godot after a short grace period even
+		// when the browser never completes decoding it.
+		return Promise.race([
+			imageReady,
+			new Promise((resolve) => window.setTimeout(resolve, 1500)),
+		]);
 	}
 
 	const missing = Engine.getMissingFeatures({
@@ -498,7 +510,13 @@ const engine = new Engine(GODOT_CONFIG);
 				}
 			},
 		})).then(() => {
-			if (titleScreenReady) finishLoadingOverlay();
+			if (titleScreenReady) {
+				finishLoadingOverlay();
+				return;
+			}
+			// RenderingServer.frame_post_draw is normally the precise handoff. If it
+			// is not delivered by iOS Safari, do not leave players behind the splash.
+			titleReadyFallbackTimer = window.setTimeout(finishLoadingOverlay, 8000);
 		}, displayFailureNotice);
 	}
 }());

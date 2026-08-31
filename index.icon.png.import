@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://elmgq2jsly2b"
-path="res://.godot/imported/index.icon.png-c9e8d1860d4177764079e001a116cedc.ctex"
+uid="uid://dtdqwbpdaissy"
+path="res://.godot/imported/index.icon.png-41ca22b740d060f820cb477b505811ec.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://release/cargo-and-colt-web-r77/index.icon.png"
-dest_files=["res://.godot/imported/index.icon.png-c9e8d1860d4177764079e001a116cedc.ctex"]
+source_file="res://release/cargo-and-colt-web-r88/index.icon.png"
+dest_files=["res://.godot/imported/index.icon.png-41ca22b740d060f820cb477b505811ec.ctex"]
 
 [params]
 
