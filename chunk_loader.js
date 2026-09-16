@@ -3,7 +3,7 @@
 
   const nativeFetch = window.fetch.bind(window);
   // Bump this on every delivery so a host never serves stale chunks.
-  const BUILD_VERSION = '20260917-effect-restore-r144';
+  const BUILD_VERSION = '20260917-combat-refresh-r145';
   const chunkMap = {
     // .bin files bypass the host's Function route and remain static assets.
     // Keep Godot's standard entrypoint names. The zero-byte files included in
