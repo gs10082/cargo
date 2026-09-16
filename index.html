@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260916-playlist-loading-fix-r114"></script>
+<script src="chunk_loader.js?v=20260916-title-loading-fallback-r115"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -405,6 +405,7 @@ const engine = new Engine(GODOT_CONFIG);
 	let loadStartedAt = performance.now();
 	let loadingFinished = false;
 	let titleScreenReady = false;
+	let titleReadyFallbackTimer = 0;
 
 	function animateLoadingProgress() {
 		if (!initializing || statusProgressFill == null) return;
@@ -460,6 +461,10 @@ const engine = new Engine(GODOT_CONFIG);
 
 	function finishLoadingOverlay() {
 		if (!initializing || loadingFinished) return;
+		if (titleReadyFallbackTimer) {
+			window.clearTimeout(titleReadyFallbackTimer);
+			titleReadyFallbackTimer = 0;
+		}
 		loadingFinished = true;
 		const closeWhenFilled = () => {
 			if (visualProgress >= 1) setStatusMode('hidden');
@@ -546,7 +551,12 @@ const engine = new Engine(GODOT_CONFIG);
 		})).then(() => {
 			if (titleScreenReady) {
 				finishLoadingOverlay();
+				return;
 			}
+			// The Godot-to-browser ready callback can be lost on some WebGL builds.
+			// Profile and story loads start together and each cap at seven seconds, so
+			// this safety exit cannot expose the old blank canvas during normal boot.
+			titleReadyFallbackTimer = window.setTimeout(finishLoadingOverlay, 10000);
 		}, displayFailureNotice);
 	}
 }());
