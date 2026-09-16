@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260831-radio-audio-r96"></script>
+<script src="chunk_loader.js?v=20260915-performance-r97"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -219,6 +219,35 @@ body {
 					const hub = getHub();
 					return typeof hub?.[method] === 'function' ? hub : null;
 				};
+				let profileSaveInFlight = false;
+				let queuedProfileSnapshot = null;
+				let profileSaveWorker = null;
+				const queueProfileSave = (snapshot) => {
+					queuedProfileSnapshot = snapshot;
+					if (profileSaveInFlight) return profileSaveWorker;
+					profileSaveInFlight = true;
+					profileSaveWorker = (async () => {
+						let saved = false;
+						while (queuedProfileSnapshot) {
+							// Batch all synchronous Godot bridge calls from this frame first.
+							await Promise.resolve();
+							const latestSnapshot = queuedProfileSnapshot;
+							queuedProfileSnapshot = null;
+							const hub = await waitForHubMethod('save');
+							if (!hub) continue;
+							try {
+								await hub.save(PROFILE_KEY, latestSnapshot);
+								saved = true;
+							} catch (_) {
+								// Local storage already has the newest snapshot; retry on a later save.
+							}
+						}
+						profileSaveInFlight = false;
+						profileSaveWorker = null;
+						return saved;
+					})();
+					return profileSaveWorker;
+				};
 
 				window.CargoAndColtHub = {
 					async loadStoryProgress() {
@@ -268,14 +297,7 @@ body {
 						const storyProgress = writeStoryProgress(snapshot);
 						snapshot.story_progress_saved_at = storyProgress.saved_at;
 						writeLocal(PROFILE_KEY, snapshot);
-						const hub = await waitForHubMethod('save');
-						if (!hub) return false;
-						try {
-							await hub.save(PROFILE_KEY, snapshot);
-							return true;
-						} catch (_) {
-							return false;
-						}
+						return queueProfileSave(snapshot);
 					},
 					async submitChallengeScore(score) {
 						const value = Math.max(0, Number(score) || 0);
@@ -348,7 +370,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":12551128,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19882876,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
