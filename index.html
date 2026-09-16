@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260916-single-pck-chunk-r139"></script>
+<script src="chunk_loader.js?v=20260831-radio-audio-r96"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -152,7 +152,6 @@ body {
 				const HUB_STORY_PROGRESS_KEY = 'cargo_and_colt_story_progress_v1';
 				const CHALLENGE_KEY = 'cargo_and_colt_survival';
 				const CHALLENGE_BEST_KEY = 'cargo_and_colt_survival_best';
-				const CHALLENGE_REQUEST_TIMEOUT_MS = 12000;
 				const readLocal = (key) => {
 					try {
 						const raw = window.localStorage.getItem(key);
@@ -220,48 +219,6 @@ body {
 					const hub = getHub();
 					return typeof hub?.[method] === 'function' ? hub : null;
 				};
-				const settleWithin = async (request, timeoutMs = CHALLENGE_REQUEST_TIMEOUT_MS) => {
-					let timeoutId = 0;
-					try {
-						return await Promise.race([
-							Promise.resolve(request).then((value) => ({ timedOut: false, value })),
-							new Promise((resolve) => {
-								timeoutId = window.setTimeout(() => resolve({ timedOut: true }), timeoutMs);
-							}),
-						]);
-					} finally {
-						if (timeoutId) window.clearTimeout(timeoutId);
-					}
-				};
-				let profileSaveInFlight = false;
-				let queuedProfileSnapshot = null;
-				let profileSaveWorker = null;
-				const queueProfileSave = (snapshot) => {
-					queuedProfileSnapshot = snapshot;
-					if (profileSaveInFlight) return profileSaveWorker;
-					profileSaveInFlight = true;
-					profileSaveWorker = (async () => {
-						let saved = false;
-						while (queuedProfileSnapshot) {
-							// Batch all synchronous Godot bridge calls from this frame first.
-							await Promise.resolve();
-							const latestSnapshot = queuedProfileSnapshot;
-							queuedProfileSnapshot = null;
-							const hub = await waitForHubMethod('save');
-							if (!hub) continue;
-							try {
-								await hub.save(PROFILE_KEY, latestSnapshot);
-								saved = true;
-							} catch (_) {
-								// Local storage already has the newest snapshot; retry on a later save.
-							}
-						}
-						profileSaveInFlight = false;
-						profileSaveWorker = null;
-						return saved;
-					})();
-					return profileSaveWorker;
-				};
 
 				window.CargoAndColtHub = {
 					async loadStoryProgress() {
@@ -311,32 +268,36 @@ body {
 						const storyProgress = writeStoryProgress(snapshot);
 						snapshot.story_progress_saved_at = storyProgress.saved_at;
 						writeLocal(PROFILE_KEY, snapshot);
-						return queueProfileSave(snapshot);
+						const hub = await waitForHubMethod('save');
+						if (!hub) return false;
+						try {
+							await hub.save(PROFILE_KEY, snapshot);
+							return true;
+						} catch (_) {
+							return false;
+						}
 					},
 					async submitChallengeScore(score) {
 						const value = Math.max(0, Number(score) || 0);
 						const savedBest = Number(readLocal(`${CHALLENGE_KEY}_best`) || 0);
-						const bestScore = Math.max(value, savedBest);
-						// Preserve the newest score locally before any platform call can stall.
-						writeLocal(`${CHALLENGE_KEY}_best`, bestScore);
 						const hub = await waitForHubMethod('submitScore');
 						if (!hub) return false;
+						const bestScore = Math.max(value, savedBest);
 						try {
 							let remoteBest = 0;
 							if (typeof hub.load === 'function') {
 								try {
-									const result = await settleWithin(hub.load(CHALLENGE_BEST_KEY));
-									if (!result.timedOut) remoteBest = Number(result.value || 0);
+									remoteBest = Number(await hub.load(CHALLENGE_BEST_KEY) || 0);
 								} catch (_) {
 									remoteBest = 0;
 								}
 							}
+							writeLocal(`${CHALLENGE_KEY}_best`, bestScore);
 							if (bestScore <= remoteBest) return true;
-							const submitResult = await settleWithin(hub.submitScore(CHALLENGE_KEY, bestScore));
-							if (submitResult.timedOut) return false;
+							await hub.submitScore(CHALLENGE_KEY, bestScore);
 							if (typeof hub.save === 'function') {
 								try {
-									await settleWithin(hub.save(CHALLENGE_BEST_KEY, bestScore));
+									await hub.save(CHALLENGE_BEST_KEY, bestScore);
 								} catch (_) {
 									// A successful score submission remains valid without this mirror.
 								}
@@ -387,7 +348,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19364336,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":12551128,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -553,13 +514,13 @@ const engine = new Engine(GODOT_CONFIG);
 				finishLoadingOverlay();
 				return;
 			}
-			// The Godot-to-browser ready callback can be lost on some WebGL builds.
-			// Startup waits for only the single profile request, capped at seven seconds,
-			// leaving a three-second render margin before this safety exit.
-			titleReadyFallbackTimer = window.setTimeout(finishLoadingOverlay, 10000);
+			// RenderingServer.frame_post_draw is normally the precise handoff. If it
+			// is not delivered by iOS Safari, do not leave players behind the splash.
+			titleReadyFallbackTimer = window.setTimeout(finishLoadingOverlay, 8000);
 		}, displayFailureNotice);
 	}
 }());
 		</script>
 	</body>
 </html>
+
