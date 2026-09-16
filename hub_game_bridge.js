@@ -86,11 +86,6 @@
       return queueProfileSave(profile);
     },
 
-    saveProfileLocal(profile) {
-      writeLocal(PROFILE_KEY, profile);
-      return true;
-    },
-
     async submitChallengeScore(score) {
       const value = Math.max(0, Number(score) || 0);
       const savedBest = Number(readLocal(`${CHALLENGE_KEY}_best`) || 0);
