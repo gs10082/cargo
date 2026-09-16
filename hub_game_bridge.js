@@ -24,6 +24,10 @@
 
   const getHub = () => window.HubGame || null;
 
+  let profileSaveInFlight = false;
+  let queuedProfileSnapshot = null;
+  let profileSaveWorker = null;
+
   const waitForHubMethod = async (method, timeoutMs = 6000) => {
     const startedAt = Date.now();
     do {
@@ -33,6 +37,33 @@
     } while (Date.now() - startedAt < timeoutMs);
     const hub = getHub();
     return typeof hub?.[method] === 'function' ? hub : null;
+  };
+
+  const queueProfileSave = (snapshot) => {
+    queuedProfileSnapshot = snapshot;
+    if (profileSaveInFlight) return profileSaveWorker;
+    profileSaveInFlight = true;
+    profileSaveWorker = (async () => {
+      let saved = false;
+      while (queuedProfileSnapshot) {
+        // Batch all synchronous Godot bridge calls from this frame first.
+        await Promise.resolve();
+        const latestSnapshot = queuedProfileSnapshot;
+        queuedProfileSnapshot = null;
+        const hub = await waitForHubMethod('save');
+        if (!hub) continue;
+        try {
+          await hub.save(PROFILE_KEY, latestSnapshot);
+          saved = true;
+        } catch (_) {
+          // Local storage already has the newest snapshot; retry on a later save.
+        }
+      }
+      profileSaveInFlight = false;
+      profileSaveWorker = null;
+      return saved;
+    })();
+    return profileSaveWorker;
   };
 
   window.CargoAndColtHub = {
@@ -52,14 +83,7 @@
 
     async saveProfile(profile) {
       writeLocal(PROFILE_KEY, profile);
-      const hub = await waitForHubMethod('save');
-      if (!hub) return false;
-      try {
-        await hub.save(PROFILE_KEY, profile);
-        return true;
-      } catch (_) {
-        return false;
-      }
+      return queueProfileSave(profile);
     },
 
     async submitChallengeScore(score) {
