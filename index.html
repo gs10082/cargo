@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260916-single-mp3-loop-r113"></script>
+<script src="chunk_loader.js?v=20260916-playlist-loading-fix-r114"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -387,7 +387,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":13941452,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":22645584,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -405,7 +405,6 @@ const engine = new Engine(GODOT_CONFIG);
 	let loadStartedAt = performance.now();
 	let loadingFinished = false;
 	let titleScreenReady = false;
-	let titleReadyFallbackTimer = 0;
 
 	function animateLoadingProgress() {
 		if (!initializing || statusProgressFill == null) return;
@@ -461,10 +460,6 @@ const engine = new Engine(GODOT_CONFIG);
 
 	function finishLoadingOverlay() {
 		if (!initializing || loadingFinished) return;
-		if (titleReadyFallbackTimer) {
-			window.clearTimeout(titleReadyFallbackTimer);
-			titleReadyFallbackTimer = 0;
-		}
 		loadingFinished = true;
 		const closeWhenFilled = () => {
 			if (visualProgress >= 1) setStatusMode('hidden');
@@ -551,11 +546,7 @@ const engine = new Engine(GODOT_CONFIG);
 		})).then(() => {
 			if (titleScreenReady) {
 				finishLoadingOverlay();
-				return;
 			}
-			// RenderingServer.frame_post_draw is normally the precise handoff. If it
-			// is not delivered by iOS Safari, do not leave players behind the splash.
-			titleReadyFallbackTimer = window.setTimeout(finishLoadingOverlay, 8000);
 		}, displayFailureNotice);
 	}
 }());
