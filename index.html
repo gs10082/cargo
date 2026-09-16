@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260917-storage-boss-pass-r141"></script>
+<script src="chunk_loader.js?v=20260917-gameplay-sync-r142"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Keep the platform save and leaderboard bridge in the document itself.
@@ -313,6 +313,13 @@ body {
 						writeLocal(PROFILE_KEY, snapshot);
 						return queueProfileSave(snapshot);
 					},
+					saveProfileLocal(profile) {
+						const snapshot = { ...profile, profile_saved_at: Date.now() };
+						const storyProgress = writeStoryProgress(snapshot);
+						snapshot.story_progress_saved_at = storyProgress.saved_at;
+						writeLocal(PROFILE_KEY, snapshot);
+						return true;
+					},
 					async submitChallengeScore(score) {
 						const value = Math.max(0, Number(score) || 0);
 						const savedBest = Number(readLocal(`${CHALLENGE_KEY}_best`) || 0);
@@ -387,7 +394,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19368112,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19369120,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
@@ -563,5 +570,4 @@ const engine = new Engine(GODOT_CONFIG);
 		</script>
 	</body>
 </html>
-
 
