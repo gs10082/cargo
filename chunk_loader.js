@@ -3,14 +3,14 @@
 
   const nativeFetch = window.fetch.bind(window);
   // Bump this on every delivery so a host never serves stale chunks.
-  const BUILD_VERSION = '20260916-shop-input-inventory-search-r138';
+  const BUILD_VERSION = '20260916-single-pck-chunk-r139';
   const chunkMap = {
     // .bin files bypass the host's Function route and remain static assets.
     // Keep Godot's standard entrypoint names. The zero-byte files included in
     // the release satisfy Game Hub's static HTML verifier; this loader then
     // serves the real data from upload-safe chunks at runtime.
     'index.wasm': ['index-wasm-1.bin', 'index-wasm-2.bin'],
-    'index.pck': ['index-pck-1.bin', 'index-pck-2.bin'],
+    'index.pck': ['index-pck-1.bin'],
   };
 
   const streamChunks = (baseUrl, chunks, init, contentType) => {
