@@ -138,9 +138,60 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260917-combat-refresh-r145"></script>
+<script src="chunk_loader.js?v=20260917-runtime-diagnostics-r146"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
+			// Bounded browser-side crash history. This deliberately records only major
+			// game checkpoints and platform failures, never per-frame activity.
+			(() => {
+				'use strict';
+				const HISTORY_KEY = 'cargo_and_colt_runtime_history_v1';
+				const HISTORY_LIMIT = 200;
+				const read = () => {
+					try {
+						const value = JSON.parse(window.localStorage.getItem(HISTORY_KEY) || '[]');
+						return Array.isArray(value) ? value : [];
+					} catch (_) {
+						return [];
+					}
+				};
+				const write = (entries) => {
+					try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(-HISTORY_LIMIT))); } catch (_) {}
+				};
+				const append = (entry) => {
+					const memory = performance.memory;
+					const browserEntry = {
+						...entry,
+						browser_msec: Math.round(performance.now()),
+						js_heap_used: Number(memory?.usedJSHeapSize || 0),
+						js_heap_limit: Number(memory?.jsHeapSizeLimit || 0),
+						visibility: document.visibilityState,
+					};
+					const entries = read();
+					entries.push(browserEntry);
+					write(entries);
+				};
+				window.CargoAndColtRuntimeHistory = {
+					append,
+					clear: () => write([]),
+					read,
+				};
+				window.addEventListener('error', (event) => append({ event: 'js_error', message: String(event.message || ''), source: String(event.filename || ''), line: Number(event.lineno || 0) }));
+				window.addEventListener('unhandledrejection', (event) => append({ event: 'unhandled_rejection', message: String(event.reason?.message || event.reason || '') }));
+				window.addEventListener('pagehide', (event) => append({ event: 'pagehide', persisted: !!event.persisted }));
+				document.addEventListener('visibilitychange', () => append({ event: 'visibility_changed', visibility: document.visibilityState }));
+				const canvas = document.getElementById('canvas');
+				if (canvas) canvas.addEventListener('webglcontextlost', () => append({ event: 'webgl_context_lost' }));
+				if (new URLSearchParams(window.location.search).get('runtime_log') === '1') {
+					window.addEventListener('load', () => {
+						const panel = document.createElement('pre');
+						panel.textContent = read().slice(-25).map((entry) => JSON.stringify(entry)).join('\n');
+						panel.style.cssText = 'position:fixed;inset:8px;z-index:99999;margin:0;padding:10px;overflow:auto;background:#10151de8;color:#cde8d4;font:11px/1.4 monospace;white-space:pre-wrap;pointer-events:auto;';
+						document.body.appendChild(panel);
+					});
+				}
+			})();
+
 			// Keep the platform save and leaderboard bridge in the document itself.
 			// The Game Hub document worker inspects this entry HTML before Godot starts.
 			(() => {
@@ -394,7 +445,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19371200,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19371136,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
