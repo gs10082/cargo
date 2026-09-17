@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260917-wave-end-diagnostics-r151"></script>
+<script src="chunk_loader.js?v=20260917-wave-summary-diagnostics-r152"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Bounded browser-side crash history. This deliberately records only major
@@ -146,7 +146,11 @@ body {
 			(() => {
 				'use strict';
 				const HISTORY_KEY = 'cargo_and_colt_runtime_history_v1';
-				const HISTORY_LIMIT = 200;
+			// Keep diagnostics by wave, not by individual event. A single wave now
+			// emits several checkpoints, so a 25-event cap hid the exact transition
+			// we needed to compare. This retains the latest 25 complete wave records.
+			const HISTORY_LIMIT = 600;
+			const WAVE_HISTORY_LIMIT = 25;
 				const read = () => {
 					try {
 						const value = JSON.parse(window.localStorage.getItem(HISTORY_KEY) || '[]');
@@ -155,9 +159,34 @@ body {
 						return [];
 					}
 				};
-				const write = (entries) => {
-					try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(-HISTORY_LIMIT))); } catch (_) {}
-				};
+			const trimToRecentWaves = (entries) => {
+				const waves = [...new Set(entries.map((entry) => Number(entry.wave)).filter((wave) => Number.isFinite(wave) && wave > 0))].sort((a, b) => a - b);
+				const keptWaves = new Set(waves.slice(-WAVE_HISTORY_LIMIT));
+				return entries.filter((entry) => {
+					const wave = Number(entry.wave);
+					return !Number.isFinite(wave) || wave <= 0 || keptWaves.has(wave);
+				}).slice(-HISTORY_LIMIT);
+			};
+			const write = (entries) => {
+				try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(trimToRecentWaves(entries))); } catch (_) {}
+			};
+			const summarizeWaves = (entries) => {
+				const summaries = new Map();
+				for (const entry of entries) {
+					const wave = Number(entry.wave);
+					if (!Number.isFinite(wave) || wave <= 0) continue;
+					const heapMB = Math.round((Number(entry.js_heap_used || 0) / 1048576) * 10) / 10;
+					let summary = summaries.get(wave);
+					if (!summary) {
+						summary = { wave, peak_mb: heapMB, nodes_peak: Number(entry.tree_nodes || 0), phases: {} };
+						summaries.set(wave, summary);
+					}
+					summary.peak_mb = Math.max(summary.peak_mb, heapMB);
+					summary.nodes_peak = Math.max(summary.nodes_peak, Number(entry.tree_nodes || 0));
+					summary.phases[String(entry.event || 'unknown')] = heapMB;
+				}
+				return [...summaries.values()].sort((a, b) => a.wave - b.wave).slice(-WAVE_HISTORY_LIMIT);
+			};
 				const append = (entry) => {
 					const memory = performance.memory;
 					const browserEntry = {
@@ -185,7 +214,10 @@ body {
 				if (new URLSearchParams(window.location.search).get('runtime_log') === '1') {
 					window.addEventListener('load', () => {
 						const panel = document.createElement('pre');
-						panel.textContent = read().slice(-25).map((entry) => JSON.stringify(entry)).join('\n');
+						const summaries = summarizeWaves(read());
+						panel.textContent = summaries.length > 0
+							? summaries.map((summary) => JSON.stringify(summary)).join('\n')
+							: '웨이브 진단 기록이 없습니다.';
 						panel.style.cssText = 'position:fixed;inset:8px;z-index:99999;margin:0;padding:10px;overflow:auto;background:#10151de8;color:#cde8d4;font:11px/1.4 monospace;white-space:pre-wrap;pointer-events:auto;';
 						document.body.appendChild(panel);
 					});
