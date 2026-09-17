@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260917-transient-pooling-telemetry-r157"></script>
+<script src="chunk_loader.js?v=20260918-debug-tier5-runtime-logging-r160"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Bounded browser-side crash history. This deliberately records only major
@@ -146,7 +146,7 @@ body {
 			(() => {
 				'use strict';
 				const HISTORY_KEY = 'cargo_and_colt_runtime_history_v1';
-				const runtimeLogEnabled = new URLSearchParams(window.location.search).get('runtime_log') === '1';
+			const runtimeLogPanelEnabled = new URLSearchParams(window.location.search).get('runtime_log') === '1';
 			// Keep diagnostics by wave, not by individual event. A single wave now
 			// emits several checkpoints, so a 25-event cap hid the exact transition
 			// we needed to compare. This retains the latest 25 complete wave records.
@@ -217,7 +217,6 @@ body {
 				return [...summaries.values()].sort((a, b) => a.wave - b.wave).slice(-WAVE_HISTORY_LIMIT);
 			};
 				const append = (entry) => {
-					if (!runtimeLogEnabled) return;
 					const memory = performance.memory;
 					const browserEntry = {
 						...entry,
@@ -241,7 +240,7 @@ body {
 				document.addEventListener('visibilitychange', () => append({ event: 'visibility_changed', visibility: document.visibilityState }));
 				const canvas = document.getElementById('canvas');
 				if (canvas) canvas.addEventListener('webglcontextlost', () => append({ event: 'webgl_context_lost' }));
-				if (runtimeLogEnabled) {
+				if (runtimeLogPanelEnabled) {
 					window.addEventListener('load', () => {
 						const panel = document.createElement('pre');
 						const summaries = summarizeWaves(read());
@@ -507,7 +506,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19389056,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19388592,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
