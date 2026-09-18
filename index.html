@@ -138,7 +138,7 @@ body {
 		<!-- Reassembles upload-safe Web export chunks before Godot fetches them. -->
 		<!-- Version this URL as well as the chunks: otherwise a cached old loader
 		     keeps requesting a previous PCK even after a new release is uploaded. -->
-<script src="chunk_loader.js?v=20260918-sfx-shared-r166"></script>
+<script src="chunk_loader.js?v=20260918-runtime-bridge-r178"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
 			// Bounded browser-side crash history. This deliberately records only major
@@ -146,7 +146,7 @@ body {
 			(() => {
 				'use strict';
 				const HISTORY_KEY = 'cargo_and_colt_runtime_history_v1';
-				const BUILD = '20260918-sfx-shared-r166';
+				const BUILD = '20260918-runtime-bridge-r178';
 				const SESSION = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 			const runtimeLogPanelEnabled = new URLSearchParams(window.location.search).get('runtime_log') === '1';
 			// Keep diagnostics by wave, not by individual event. A single wave now
@@ -154,6 +154,7 @@ body {
 			// we needed to compare. This retains the latest 25 complete wave records.
 			const HISTORY_LIMIT = 600;
 			const WAVE_HISTORY_LIMIT = 25;
+			const HISTORY_WRITE_DELAY_MS = 250;
 				const read = () => {
 					try {
 						const value = JSON.parse(window.localStorage.getItem(HISTORY_KEY) || '[]');
@@ -176,8 +177,15 @@ body {
 					return !Number.isFinite(wave) || wave <= 0 || keptWaves.has(key(entry));
 				}).slice(-HISTORY_LIMIT);
 			};
-			const write = (entries) => {
-				try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(trimToRecentWaves(entries))); } catch (_) {}
+			let entries = [];
+			let pendingWrite = 0;
+			const flush = () => {
+				if (pendingWrite) { clearTimeout(pendingWrite); pendingWrite = 0; }
+				entries = trimToRecentWaves(entries);
+				try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries)); } catch (_) {}
+			};
+			const scheduleWrite = () => {
+				if (!pendingWrite) pendingWrite = setTimeout(flush, HISTORY_WRITE_DELAY_MS);
 			};
 			const summarizeWaves = (entries) => {
 				const summaries = new Map();
@@ -237,18 +245,26 @@ body {
 						js_heap_limit: memory?.jsHeapSizeLimit ?? null,
 						visibility: document.visibilityState,
 					};
-					const entries = read();
 					entries.push(browserEntry);
-					write(entries);
+					if (entries.length > HISTORY_LIMIT + 20) flush();
+					else scheduleWrite();
 				};
+				// Godot calls this fixed bridge with JSON data. Avoiding per-event eval
+				// source creation keeps browser diagnostics from growing the JS heap.
+				const appendJson = (serialized) => {
+					try { append(JSON.parse(String(serialized))); } catch (_) {}
+				};
+				entries = read();
 				window.CargoAndColtRuntimeHistory = {
 					append,
-					clear: () => write([]),
-					read,
+					appendJson,
+					clear: () => { entries = []; flush(); },
+					read: () => entries.slice(),
+					flush,
 				};
 				window.addEventListener('error', (event) => append({ event: 'js_error', message: String(event.message || ''), source: String(event.filename || ''), line: Number(event.lineno || 0) }));
 				window.addEventListener('unhandledrejection', (event) => append({ event: 'unhandled_rejection', message: String(event.reason?.message || event.reason || '') }));
-				window.addEventListener('pagehide', (event) => append({ event: 'pagehide', persisted: !!event.persisted }));
+				window.addEventListener('pagehide', (event) => { append({ event: 'pagehide', persisted: !!event.persisted }); flush(); });
 				document.addEventListener('visibilitychange', () => append({ event: 'visibility_changed', visibility: document.visibilityState }));
 				const canvas = document.getElementById('canvas');
 				if (canvas) canvas.addEventListener('webglcontextlost', () => append({ event: 'webgl_context_lost' }));
@@ -438,12 +454,33 @@ body {
 						writeLocal(PROFILE_KEY, snapshot);
 						return queueProfileSave(snapshot);
 					},
+					saveProfileJson(serialized) {
+						try {
+							const snapshot = { ...JSON.parse(String(serialized)), profile_saved_at: Date.now() };
+							const storyProgress = writeStoryProgress(snapshot);
+							snapshot.story_progress_saved_at = storyProgress.saved_at;
+							writeLocal(PROFILE_KEY, snapshot);
+							return queueProfileSave(snapshot);
+						} catch (_) { return false; }
+					},
 					saveProfileLocal(profile) {
 						const snapshot = { ...profile, profile_saved_at: Date.now() };
 						const storyProgress = writeStoryProgress(snapshot);
 						snapshot.story_progress_saved_at = storyProgress.saved_at;
 						writeLocal(PROFILE_KEY, snapshot);
 						return true;
+					},
+					saveProfileLocalJson(serialized) {
+						try {
+							const snapshot = { ...JSON.parse(String(serialized)), profile_saved_at: Date.now() };
+							const storyProgress = writeStoryProgress(snapshot);
+							snapshot.story_progress_saved_at = storyProgress.saved_at;
+							writeLocal(PROFILE_KEY, snapshot);
+							return true;
+						} catch (_) { return false; }
+					},
+					saveChallengeResumeJson(serialized) {
+						try { window.localStorage.setItem('cargo_and_colt_challenge_resume_v1', String(serialized)); return true; } catch (_) { return false; }
 					},
 					async submitChallengeScore(score) {
 						const value = Math.max(0, Number(score) || 0);
@@ -519,7 +556,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19394672,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19398288,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
