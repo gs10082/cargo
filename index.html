@@ -141,19 +141,15 @@ body {
 <script src="chunk_loader.js?v=20260918-runtime-bridge-r178"></script>
 		<script src="pointer_capture_bridge.js"></script>
 		<script>
-			// Bounded browser-side crash history. This deliberately records only major
-			// game checkpoints and platform failures, never per-frame activity.
+			// Bounded browser-side lifecycle/crash history. Detailed performance
+			// sampling stays out of release builds so diagnostics cannot affect play.
 			(() => {
 				'use strict';
 				const HISTORY_KEY = 'cargo_and_colt_runtime_history_v1';
 				const BUILD = '20260918-runtime-bridge-r178';
 				const SESSION = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 			const runtimeLogPanelEnabled = new URLSearchParams(window.location.search).get('runtime_log') === '1';
-			// Keep diagnostics by wave, not by individual event. A single wave now
-			// emits several checkpoints, so a 25-event cap hid the exact transition
-			// we needed to compare. This retains the latest 25 complete wave records.
-			const HISTORY_LIMIT = 600;
-			const WAVE_HISTORY_LIMIT = 25;
+			const HISTORY_LIMIT = 80;
 			const HISTORY_WRITE_DELAY_MS = 250;
 				const read = () => {
 					try {
@@ -163,87 +159,21 @@ body {
 						return [];
 					}
 				};
-			const trimToRecentWaves = (entries) => {
-				const key = (entry) => `${entry.session || 'legacy'}:${entry.wave}`;
-				const waves = new Map();
-				for (const entry of entries) {
-					if (!(Number(entry.wave) > 0)) continue;
-					waves.delete(key(entry));
-					waves.set(key(entry), true);
-				}
-				const keptWaves = new Set([...waves.keys()].slice(-WAVE_HISTORY_LIMIT));
-				return entries.filter((entry) => {
-					const wave = Number(entry.wave);
-					return !Number.isFinite(wave) || wave <= 0 || keptWaves.has(key(entry));
-				}).slice(-HISTORY_LIMIT);
-			};
 			let entries = [];
 			let pendingWrite = 0;
 			const flush = () => {
 				if (pendingWrite) { clearTimeout(pendingWrite); pendingWrite = 0; }
-				entries = trimToRecentWaves(entries);
+				entries = entries.slice(-HISTORY_LIMIT);
 				try { window.localStorage.setItem(HISTORY_KEY, JSON.stringify(entries)); } catch (_) {}
 			};
 			const scheduleWrite = () => {
 				if (!pendingWrite) pendingWrite = setTimeout(flush, HISTORY_WRITE_DELAY_MS);
 			};
-			const summarizeWaves = (entries) => {
-				const summaries = new Map();
-				for (const entry of entries) {
-					const wave = Number(entry.wave);
-					if (!Number.isFinite(wave) || wave <= 0) continue;
-					const heapMB = Math.round((Number(entry.js_heap_used || 0) / 1048576) * 10) / 10;
-					let summary = summaries.get(wave);
-					if (!summary) {
-						summary = { wave, peak_mb: heapMB, nodes_peak: Number(entry.tree_nodes || 0), phases: {} };
-						summaries.set(wave, summary);
-					}
-					summary.peak_mb = Math.max(summary.peak_mb, heapMB);
-					summary.nodes_peak = Math.max(summary.nodes_peak, Number(entry.tree_nodes || 0));
-						// This is a resource-pressure fingerprint, not an invented GPU-byte value.
-						// WebKit does not expose per-texture/Per-WebGL-resource memory to pages.
-						summary.phases[String(entry.event || 'unknown')] = {
-							heap_mb: heapMB,
-							enemies: Number(entry.enemies || 0),
-							enemy_dying: Number(entry.enemy_dying || 0),
-							enemy_frozen: Number(entry.enemy_frozen || 0),
-							enemy_burning: Number(entry.enemy_burning || 0),
-							ice_shards: Number(entry.ice_shards || 0),
-							enemy_types: [1,2,3,4,5,6,7,8,9,10,11].map((type) => Number(entry[`enemy_type_${type}`] || 0)),
-							traces: Number(entry.traces || 0),
-							hit_texts: Number(entry.hit_texts || 0),
-							blood: Number(entry.blood || 0),
-							truck_impacts: Number(entry.truck_impacts || 0),
-							explosions: Number(entry.explosions || 0),
-							projectiles: Number(entry.projectiles || 0),
-							barrels: Number(entry.barrels || 0),
-							consumable_impacts: Number(entry.consumable_impacts || 0),
-							heals: Number(entry.heals || 0),
-							spawned: entry.effect_spawns || {},
-							peaks: entry.effect_peaks || {},
-							pool_misses: entry.effect_pool_misses || {},
-							pools: {
-								traces: Number(entry.pool_traces || 0), hit_texts: Number(entry.pool_hit_texts || 0), blood: Number(entry.pool_blood || 0),
-								truck_impacts: Number(entry.pool_truck_impacts || 0), explosions: Number(entry.pool_explosions || 0),
-								projectiles: Number(entry.pool_projectiles || 0), barrels: Number(entry.pool_barrels || 0),
-								consumable_impacts: Number(entry.pool_consumable_impacts || 0), heals: Number(entry.pool_heals || 0),
-							},
-						};
-				}
-				return [...summaries.values()].sort((a, b) => a.wave - b.wave).slice(-WAVE_HISTORY_LIMIT);
-			};
 				const append = (entry) => {
 					if (runtimeLogPanelEnabled) return;
-					const memory = performance.memory;
 					const browserEntry = {
 						...entry,
-						engine_memory: window.CargoEngineMemorySnapshot ? window.CargoEngineMemorySnapshot() : null,
-						audio_buffer_stats: window.CargoSampleBufferStats ? { ...window.CargoSampleBufferStats } : null,
-						build: BUILD, session: SESSION, recorded_at: new Date().toISOString(), schema: 2,
-						browser_msec: Math.round(performance.now()),
-						js_heap_used: memory?.usedJSHeapSize ?? null,
-						js_heap_limit: memory?.jsHeapSizeLimit ?? null,
-						visibility: document.visibilityState,
+						build: BUILD, session: SESSION, recorded_at: new Date().toISOString(), schema: 3,
 					};
 					entries.push(browserEntry);
 					if (entries.length > HISTORY_LIMIT + 20) flush();
@@ -254,7 +184,8 @@ body {
 				const appendJson = (serialized) => {
 					try { append(JSON.parse(String(serialized))); } catch (_) {}
 				};
-				entries = read();
+				entries = read().slice(-HISTORY_LIMIT);
+				flush();
 				window.CargoAndColtRuntimeHistory = {
 					append,
 					appendJson,
@@ -265,14 +196,13 @@ body {
 				window.addEventListener('error', (event) => append({ event: 'js_error', message: String(event.message || ''), source: String(event.filename || ''), line: Number(event.lineno || 0) }));
 				window.addEventListener('unhandledrejection', (event) => append({ event: 'unhandled_rejection', message: String(event.reason?.message || event.reason || '') }));
 				window.addEventListener('pagehide', (event) => { append({ event: 'pagehide', persisted: !!event.persisted }); flush(); });
-				document.addEventListener('visibilitychange', () => append({ event: 'visibility_changed', visibility: document.visibilityState }));
 				const canvas = document.getElementById('canvas');
 				if (canvas) canvas.addEventListener('webglcontextlost', () => append({ event: 'webgl_context_lost' }));
 				if (runtimeLogPanelEnabled) {
 					window.addEventListener('load', () => {
 						const panel = document.createElement('pre');
 						const update = () => {
-							panel.textContent = `Viewer ${BUILD}\nLive history: latest 25 session/waves, max 600 events. Missing/null = NOT MEASURED. JS heap is NOT total GPU/process memory.\n` + read().map((entry) => JSON.stringify(entry)).join('\n');
+						panel.textContent = `Viewer ${BUILD}\nLifecycle/crash history only, max 80 events.\n` + read().map((entry) => JSON.stringify(entry)).join('\n');
 						};
 						update();
 						window.addEventListener('storage', (event) => { if (event.key === HISTORY_KEY) update(); });
@@ -556,7 +486,7 @@ body {
 		</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19398464,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":19397152,"index.wasm":39509339},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
